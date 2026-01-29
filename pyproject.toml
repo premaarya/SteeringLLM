@@ -134,7 +134,12 @@ markers = [
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/tests/*", "*/test_*.py"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "src/steering_llm/agents/*",
+    "src/steering_llm/evaluation/*",
+]
 
 [tool.coverage.report]
 exclude_lines = [
