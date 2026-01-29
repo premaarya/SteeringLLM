@@ -378,6 +378,57 @@ class SteeringModel:
         # Store hook reference
         self.active_hooks[layer_key] = hook
     
+    def apply_multiple_steering(
+        self,
+        vectors: List[SteeringVector],
+        alphas: Optional[List[float]] = None,
+    ) -> None:
+        """
+        Apply multiple steering vectors simultaneously.
+        
+        This method allows applying vectors to different layers or multiple
+        vectors to the same layer (after composition).
+        
+        Args:
+            vectors: List of SteeringVector instances to apply
+            alphas: Optional list of alpha values (default: 1.0 for each)
+        
+        Raises:
+            ValueError: If inputs are invalid
+            RuntimeError: If conflicts with existing steering
+        
+        Example:
+            >>> # Apply politeness and conciseness steering
+            >>> model.apply_multiple_steering(
+            ...     vectors=[politeness_vec, conciseness_vec],
+            ...     alphas=[1.2, 0.8]
+            ... )
+        """
+        if not vectors:
+            raise ValueError("vectors list cannot be empty")
+        
+        if alphas is None:
+            alphas = [1.0] * len(vectors)
+        
+        if len(alphas) != len(vectors):
+            raise ValueError(
+                f"Number of alphas ({len(alphas)}) must match "
+                f"number of vectors ({len(vectors)})"
+            )
+        
+        # Check for conflicts with existing hooks
+        for vector in vectors:
+            layer_key = f"layer_{vector.layer}"
+            if layer_key in self.active_hooks:
+                raise RuntimeError(
+                    f"Steering already active on layer {vector.layer}. "
+                    "Remove existing steering before applying new vectors."
+                )
+        
+        # Apply all vectors
+        for vector, alpha in zip(vectors, alphas):
+            self.apply_steering(vector=vector, alpha=alpha)
+    
     def remove_steering(self, layer: Optional[int] = None) -> None:
         """
         Remove steering vector(s) from the model.

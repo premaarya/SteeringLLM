@@ -5,9 +5,12 @@ This module provides methods for discovering steering vectors by analyzing
 differences in model activations between positive and negative examples.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoTokenizer
 
 from steering_llm.core.steering_vector import SteeringVector
@@ -294,3 +297,303 @@ class Discovery:
                 module = getattr(module, part)
         
         return module
+
+    @staticmethod
+    def caa(
+        positive: List[str],
+        negative: List[str],
+        model: PreTrainedModel,
+        layer: int,
+        tokenizer: Optional[PreTrainedTokenizer] = None,
+        model_name: Optional[str] = None,
+        batch_size: int = 8,
+        max_length: int = 128,
+        device: Optional[Union[str, torch.device]] = None,
+        num_pairs: Optional[int] = None,
+    ) -> SteeringVector:
+        """
+        Create steering vector using Contrastive Activation Addition (CAA).
+        
+        CAA computes layer-wise contrasts between positive and negative examples,
+        then averages these contrasts. This method typically produces stronger
+        steering vectors than simple mean difference.
+        
+        Based on: "Steering Llama 2 via Contrastive Activation Addition" 
+        (Turner et al., 2023)
+        
+        Args:
+            positive: List of texts exhibiting desired behavior
+            negative: List of texts exhibiting undesired behavior
+            model: HuggingFace model to extract activations from
+            layer: Target layer index (0-based)
+            tokenizer: Tokenizer (auto-detected if None)
+            model_name: Model identifier (auto-detected if None)
+            batch_size: Batch size for processing examples
+            max_length: Maximum sequence length
+            device: Device to use (auto-detected if None)
+            num_pairs: Number of contrast pairs to use (None = use all)
+        
+        Returns:
+            SteeringVector instance with CAA-computed direction
+        
+        Raises:
+            ValueError: If inputs are invalid or sizes don't match
+            RuntimeError: If activation extraction fails
+        
+        Example:
+            >>> from transformers import AutoModelForCausalLM
+            >>> model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-3B")
+            >>> vector = Discovery.caa(
+            ...     positive=["I love helping!", "You're amazing!"],
+            ...     negative=["I hate this.", "You're terrible."],
+            ...     model=model,
+            ...     layer=15
+            ... )
+        """
+        # Validate inputs
+        if not positive:
+            raise ValueError("positive examples list cannot be empty")
+        if not negative:
+            raise ValueError("negative examples list cannot be empty")
+        
+        if len(positive) != len(negative):
+            raise ValueError(
+                f"CAA requires equal number of positive and negative examples. "
+                f"Got {len(positive)} positive and {len(negative)} negative."
+            )
+        
+        if not isinstance(layer, int) or layer < 0:
+            raise ValueError(f"layer must be non-negative integer, got {layer}")
+        
+        # Auto-detect components
+        if tokenizer is None:
+            if model_name is None:
+                model_name = getattr(model.config, "_name_or_path", "unknown")
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+        
+        if device is None:
+            device = next(model.parameters()).device
+        elif isinstance(device, str):
+            device = torch.device(device)
+        
+        if model_name is None:
+            model_name = getattr(model.config, "_name_or_path", "unknown")
+        
+        # Detect layer name
+        layer_name = Discovery._detect_layer_name(model, layer)
+        
+        # Limit number of pairs if specified
+        if num_pairs is not None:
+            num_pairs = min(num_pairs, len(positive))
+            positive = positive[:num_pairs]
+            negative = negative[:num_pairs]
+        
+        # Extract activations for all examples
+        print(f"Extracting activations for {len(positive)} contrast pairs...")
+        pos_activations = Discovery._extract_activations(
+            texts=positive,
+            model=model,
+            tokenizer=tokenizer,
+            layer=layer,
+            layer_name=layer_name,
+            batch_size=batch_size,
+            max_length=max_length,
+            device=device,
+        )
+        
+        neg_activations = Discovery._extract_activations(
+            texts=negative,
+            model=model,
+            tokenizer=tokenizer,
+            layer=layer,
+            layer_name=layer_name,
+            batch_size=batch_size,
+            max_length=max_length,
+            device=device,
+        )
+        
+        # Compute pairwise contrasts: pos[i] - neg[i] for each pair
+        contrasts = pos_activations - neg_activations
+        
+        # Average all contrasts to get final steering vector
+        steering_vector = torch.mean(contrasts, dim=0)
+        
+        # Create SteeringVector instance
+        return SteeringVector(
+            tensor=steering_vector.cpu(),
+            layer=layer,
+            layer_name=layer_name,
+            model_name=model_name,
+            method="caa",
+            metadata={
+                "contrast_pairs": len(positive),
+                "batch_size": batch_size,
+                "max_length": max_length,
+            },
+        )
+    
+    @staticmethod
+    def linear_probe(
+        positive: List[str],
+        negative: List[str],
+        model: PreTrainedModel,
+        layer: int,
+        tokenizer: Optional[PreTrainedTokenizer] = None,
+        model_name: Optional[str] = None,
+        batch_size: int = 8,
+        max_length: int = 128,
+        device: Optional[Union[str, torch.device]] = None,
+        C: float = 1.0,
+        max_iter: int = 1000,
+        normalize: bool = True,
+    ) -> Tuple[SteeringVector, Dict[str, float]]:
+        """
+        Create steering vector using linear probing.
+        
+        Trains a logistic regression classifier on activations to distinguish
+        positive from negative examples. The classifier weights are used as the
+        steering vector, providing an interpretable feature extraction method.
+        
+        Args:
+            positive: List of texts exhibiting desired behavior
+            negative: List of texts exhibiting undesired behavior
+            model: HuggingFace model to extract activations from
+            layer: Target layer index (0-based)
+            tokenizer: Tokenizer (auto-detected if None)
+            model_name: Model identifier (auto-detected if None)
+            batch_size: Batch size for processing examples
+            max_length: Maximum sequence length
+            device: Device to use (auto-detected if None)
+            C: Inverse of regularization strength (higher = less regularization)
+            max_iter: Maximum iterations for solver
+            normalize: Whether to normalize activations before training
+        
+        Returns:
+            Tuple of (SteeringVector, metrics dict with 'train_accuracy')
+        
+        Raises:
+            ValueError: If inputs are invalid
+            RuntimeError: If training fails
+        
+        Example:
+            >>> from transformers import AutoModelForCausalLM
+            >>> model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-3B")
+            >>> vector, metrics = Discovery.linear_probe(
+            ...     positive=["I love helping!", "You're amazing!"],
+            ...     negative=["I hate this.", "You're terrible."],
+            ...     model=model,
+            ...     layer=15
+            ... )
+            >>> print(f"Probe accuracy: {metrics['train_accuracy']:.2%}")
+        """
+        # Validate inputs
+        if not positive:
+            raise ValueError("positive examples list cannot be empty")
+        if not negative:
+            raise ValueError("negative examples list cannot be empty")
+        
+        if not isinstance(layer, int) or layer < 0:
+            raise ValueError(f"layer must be non-negative integer, got {layer}")
+        
+        # Auto-detect components
+        if tokenizer is None:
+            if model_name is None:
+                model_name = getattr(model.config, "_name_or_path", "unknown")
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+        
+        if device is None:
+            device = next(model.parameters()).device
+        elif isinstance(device, str):
+            device = torch.device(device)
+        
+        if model_name is None:
+            model_name = getattr(model.config, "_name_or_path", "unknown")
+        
+        # Detect layer name
+        layer_name = Discovery._detect_layer_name(model, layer)
+        
+        # Extract activations
+        print(f"Extracting activations for {len(positive)} positive examples...")
+        pos_activations = Discovery._extract_activations(
+            texts=positive,
+            model=model,
+            tokenizer=tokenizer,
+            layer=layer,
+            layer_name=layer_name,
+            batch_size=batch_size,
+            max_length=max_length,
+            device=device,
+        )
+        
+        print(f"Extracting activations for {len(negative)} negative examples...")
+        neg_activations = Discovery._extract_activations(
+            texts=negative,
+            model=model,
+            tokenizer=tokenizer,
+            layer=layer,
+            layer_name=layer_name,
+            batch_size=batch_size,
+            max_length=max_length,
+            device=device,
+        )
+        
+        # Prepare training data
+        X = torch.cat([pos_activations, neg_activations], dim=0).cpu().numpy()
+        y = np.array([1] * len(positive) + [0] * len(negative))
+        
+        # Normalize if requested
+        scaler = None
+        if normalize:
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
+        
+        # Train logistic regression probe
+        print("Training linear probe...")
+        probe = LogisticRegression(
+            C=C,
+            max_iter=max_iter,
+            random_state=42,
+            solver="lbfgs",
+        )
+        
+        try:
+            probe.fit(X, y)
+        except Exception as e:
+            raise RuntimeError(f"Linear probe training failed: {e}")
+        
+        # Extract probe weights as steering vector
+        probe_weights = torch.from_numpy(probe.coef_[0]).float()
+        
+        # Compute training accuracy
+        train_accuracy = float(probe.score(X, y))
+        print(f"Linear probe accuracy: {train_accuracy:.2%}")
+        
+        # Create metrics dict
+        metrics = {
+            "train_accuracy": train_accuracy,
+            "positive_samples": len(positive),
+            "negative_samples": len(negative),
+            "C": C,
+            "normalized": normalize,
+        }
+        
+        # Create SteeringVector instance
+        vector = SteeringVector(
+            tensor=probe_weights.cpu(),
+            layer=layer,
+            layer_name=layer_name,
+            model_name=model_name,
+            method="linear_probe",
+            metadata={
+                **metrics,
+                "batch_size": batch_size,
+                "max_length": max_length,
+            },
+        )
+        
+        return vector, metrics
+
