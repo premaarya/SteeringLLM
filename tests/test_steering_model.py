@@ -263,6 +263,7 @@ class TestLayerDetection:
         # Create mock model with Llama structure
         mock_model = Mock()
         mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         
         # Create mock layers
         mock_layers = [Mock(spec=torch.nn.Module) for _ in range(3)]
@@ -278,6 +279,7 @@ class TestLayerDetection:
         """Test that layer detection is cached."""
         mock_model = Mock()
         mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_layers = [Mock(spec=torch.nn.Module) for _ in range(2)]
         mock_model.model.layers = mock_layers
         
@@ -294,6 +296,7 @@ class TestLayerDetection:
         """Test getting a valid layer module."""
         mock_model = Mock()
         mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_layers = [Mock(spec=torch.nn.Module) for _ in range(3)]
         mock_model.model.layers = mock_layers
         
@@ -306,6 +309,7 @@ class TestLayerDetection:
         """Test getting invalid layer raises error."""
         mock_model = Mock()
         mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_layers = [Mock(spec=torch.nn.Module) for _ in range(3)]
         mock_model.model.layers = mock_layers
         
@@ -322,6 +326,8 @@ class TestApplySteering:
         """Test applying steering vector."""
         # Create mock model
         mock_model = Mock()
+        mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_layer.register_forward_hook.return_value = Mock()
@@ -346,6 +352,8 @@ class TestApplySteering:
     def test_apply_steering_dimension_mismatch(self) -> None:
         """Test that dimension mismatch raises error."""
         mock_model = Mock()
+        mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_model.model.layers = [mock_layer]
@@ -366,6 +374,8 @@ class TestApplySteering:
     def test_apply_steering_already_active(self) -> None:
         """Test that applying steering twice raises error."""
         mock_model = Mock()
+        mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_layer.register_forward_hook.return_value = Mock()
@@ -390,6 +400,8 @@ class TestApplySteering:
     def test_apply_steering_invalid_alpha(self) -> None:
         """Test that invalid alpha raises error."""
         mock_model = Mock()
+        mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_model.model.layers = [mock_layer]
@@ -413,6 +425,8 @@ class TestRemoveSteering:
     def test_remove_steering_specific_layer(self) -> None:
         """Test removing steering from specific layer."""
         mock_model = Mock()
+        mock_model.config = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_handle = Mock()
@@ -439,6 +453,7 @@ class TestRemoveSteering:
     def test_remove_steering_all(self) -> None:
         """Test removing all steering vectors."""
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layers = [Mock(spec=torch.nn.Module) for _ in range(3)]
         
@@ -475,6 +490,7 @@ class TestRemoveSteering:
     def test_remove_all_steering_alias(self) -> None:
         """Test remove_all_steering() alias."""
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_handle = Mock()
@@ -523,6 +539,7 @@ class TestListActiveSteering:
     def test_list_active_single(self) -> None:
         """Test listing single active steering."""
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_layer.register_forward_hook.return_value = Mock()
@@ -550,6 +567,7 @@ class TestListActiveSteering:
     def test_list_active_multiple(self) -> None:
         """Test listing multiple active steering vectors."""
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layers = [Mock(spec=torch.nn.Module) for _ in range(3)]
         
@@ -584,6 +602,7 @@ class TestGenerateWithSteering:
         """Test generation with steering on single prompt."""
         # Create mock model with generate method
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_layer.register_forward_hook.return_value = Mock()
@@ -631,6 +650,7 @@ class TestGenerateWithSteering:
     def test_generate_with_steering_batch(self) -> None:
         """Test generation with steering on batch prompts."""
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_layer.register_forward_hook.return_value = Mock()
@@ -669,6 +689,7 @@ class TestGenerateWithSteering:
     def test_generate_with_steering_cleanup_on_error(self) -> None:
         """Test that steering is removed even if generation fails."""
         mock_model = Mock()
+        mock_model.config.model_type = "llama"
         mock_model.config.hidden_size = 100
         mock_layer = Mock(spec=torch.nn.Module)
         mock_layer.register_forward_hook.return_value = Mock()
@@ -748,3 +769,144 @@ class TestSteeringModelHelpers:
         result = steering_model.some_method()
         assert result == "result"
         assert mock_model.some_method.called
+
+
+class TestModelRegistry:
+    """Tests for MODEL_REGISTRY and extended architecture support."""
+    
+    def test_model_registry_contains_extended_models(self) -> None:
+        """Test that MODEL_REGISTRY includes new architectures."""
+        from steering_llm.core.steering_model import MODEL_REGISTRY
+        
+        # Verify extended models are present
+        assert "gemma2" in MODEL_REGISTRY
+        assert "phi3" in MODEL_REGISTRY
+        assert "qwen2" in MODEL_REGISTRY
+        assert "gpt2" in MODEL_REGISTRY
+        assert "bloom" in MODEL_REGISTRY
+        assert "falcon" in MODEL_REGISTRY
+    
+    @patch("steering_llm.core.steering_model.AutoModelForCausalLM")
+    @patch("steering_llm.core.steering_model.AutoTokenizer")
+    def test_from_pretrained_gemma2(
+        self, mock_tokenizer_cls, mock_model_cls
+    ) -> None:
+        """Test loading Gemma 2 model."""
+        mock_model = Mock()
+        mock_model.config.model_type = "gemma2"
+        mock_model_cls.from_pretrained.return_value = mock_model
+        
+        mock_tokenizer = Mock()
+        mock_tokenizer.pad_token = "<pad>"
+        mock_tokenizer_cls.from_pretrained.return_value = mock_tokenizer
+        
+        # Should not raise
+        steering_model = SteeringModel.from_pretrained("google/gemma-2-2b")
+        assert steering_model.model is mock_model
+    
+    @patch("steering_llm.core.steering_model.AutoModelForCausalLM")
+    @patch("steering_llm.core.steering_model.AutoTokenizer")
+    def test_from_pretrained_phi3(
+        self, mock_tokenizer_cls, mock_model_cls
+    ) -> None:
+        """Test loading Phi-3 model."""
+        mock_model = Mock()
+        mock_model.config.model_type = "phi3"
+        mock_model_cls.from_pretrained.return_value = mock_model
+        
+        mock_tokenizer = Mock()
+        mock_tokenizer.pad_token = "<pad>"
+        mock_tokenizer_cls.from_pretrained.return_value = mock_tokenizer
+        
+        # Should not raise
+        steering_model = SteeringModel.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
+        assert steering_model.model is mock_model
+    
+    @patch("steering_llm.core.steering_model.AutoModelForCausalLM")
+    @patch("steering_llm.core.steering_model.AutoTokenizer")
+    def test_from_pretrained_qwen2(
+        self, mock_tokenizer_cls, mock_model_cls
+    ) -> None:
+        """Test loading Qwen 2.5 model."""
+        mock_model = Mock()
+        mock_model.config.model_type = "qwen2"
+        mock_model_cls.from_pretrained.return_value = mock_model
+        
+        mock_tokenizer = Mock()
+        mock_tokenizer.pad_token = "<pad>"
+        mock_tokenizer_cls.from_pretrained.return_value = mock_tokenizer
+        
+        # Should not raise
+        steering_model = SteeringModel.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
+        assert steering_model.model is mock_model
+    
+    def test_detect_layers_with_registry(self) -> None:
+        """Test layer detection using MODEL_REGISTRY."""
+        mock_model = Mock()
+        mock_model.config.model_type = "gemma2"
+        
+        # Create mock layers for Gemma 2
+        mock_layers = [Mock(spec=torch.nn.Module) for _ in range(4)]
+        mock_model.model.layers = mock_layers
+        
+        steering_model = SteeringModel(model=mock_model)
+        layers = steering_model._detect_layers()
+        
+        assert len(layers) == 4
+        assert all(i in layers for i in range(4))
+    
+    def test_detect_layers_unsupported_model_type(self) -> None:
+        """Test layer detection with unsupported model_type."""
+        mock_model = Mock()
+        mock_model.config.model_type = "unsupported_arch"
+        
+        steering_model = SteeringModel(model=mock_model)
+        
+        with pytest.raises(ValueError, match="Unsupported model_type"):
+            steering_model._detect_layers()
+    
+    def test_detect_layers_better_error_message(self) -> None:
+        """Test that error message includes supported architectures."""
+        mock_model = Mock()
+        mock_model.config.model_type = "unknown"
+        
+        steering_model = SteeringModel(model=mock_model)
+        
+        with pytest.raises(ValueError) as exc_info:
+            steering_model._detect_layers()
+        
+        # Error should list some supported architectures
+        error_msg = str(exc_info.value)
+        assert "llama" in error_msg or "mistral" in error_msg
+        assert "Supported:" in error_msg
+
+
+class TestDeviceProperties:
+    """Tests for device property and device handling."""
+    
+    def test_device_property(self) -> None:
+        """Test that device property returns model device."""
+        mock_model = Mock()
+        mock_model.config = Mock()
+        
+        # Create a real parameter to test device
+        mock_param = torch.nn.Parameter(torch.randn(10, 10))
+        mock_model.parameters.return_value = iter([mock_param])
+        
+        steering_model = SteeringModel(model=mock_model)
+        device = steering_model.device
+        
+        assert isinstance(device, torch.device)
+    
+    def test_num_layers_property(self) -> None:
+        """Test num_layers property."""
+        mock_model = Mock()
+        mock_model.config.model_type = "llama"
+        
+        # Create mock layers
+        mock_layers = [Mock(spec=torch.nn.Module) for _ in range(5)]
+        mock_model.model.layers = mock_layers
+        
+        steering_model = SteeringModel(model=mock_model)
+        
+        assert steering_model.num_layers == 5

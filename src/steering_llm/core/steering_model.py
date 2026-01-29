@@ -5,7 +5,7 @@ This module provides the main interface for loading models and applying
 steering vectors using PyTorch forward hooks.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from transformers import (
@@ -16,6 +16,36 @@ from transformers import (
 )
 
 from steering_llm.core.steering_vector import SteeringVector
+
+
+# Model architecture registry: maps model_type to (parent_module, layers_attr)
+# This allows flexible layer detection across different architectures
+MODEL_REGISTRY: Dict[str, Tuple[str, str]] = {
+    # Llama family (Llama 2, Llama 3, Code Llama)
+    "llama": ("model", "layers"),
+    # Mistral family (Mistral, Mixtral)
+    "mistral": ("model", "layers"),
+    # Gemma family (Gemma 1, Gemma 2)
+    "gemma": ("model", "layers"),
+    "gemma2": ("model", "layers"),
+    # Phi family (Phi-2, Phi-3)
+    "phi": ("model", "layers"),
+    "phi3": ("model", "layers"),
+    # Qwen family (Qwen 1.5, Qwen 2, Qwen 2.5)
+    "qwen2": ("model", "layers"),
+    "qwen2_moe": ("model", "layers"),
+    # GPT family (GPT-2, GPT-Neo, GPT-J)
+    "gpt2": ("transformer", "h"),
+    "gpt_neo": ("transformer", "h"),
+    "gpt_neox": ("gpt_neox", "layers"),
+    "gptj": ("transformer", "h"),
+    # OPT family
+    "opt": ("model.decoder", "layers"),
+    # BLOOM
+    "bloom": ("transformer", "h"),
+    # Falcon
+    "falcon": ("transformer", "h"),
+}
 
 
 class ActivationHook:
@@ -125,6 +155,26 @@ class SteeringModel:
         self.active_hooks: Dict[str, ActivationHook] = {}
         self._layer_modules: Optional[Dict[int, torch.nn.Module]] = None
     
+    @property
+    def device(self) -> torch.device:
+        """
+        Get the primary device of the model.
+        
+        Returns:
+            torch.device where model parameters are located
+        """
+        return next(iter(self.model.parameters())).device
+    
+    @property
+    def num_layers(self) -> int:
+        """
+        Get the number of layers in the model.
+        
+        Returns:
+            Number of transformer layers
+        """
+        return len(self._detect_layers())
+    
     @classmethod
     def from_pretrained(
         cls,
@@ -174,12 +224,15 @@ class SteeringModel:
         
         # Validate architecture support
         model_type = getattr(hf_model.config, "model_type", None)
-        supported_types = {"llama", "mistral", "gemma"}
         
-        if model_type not in supported_types:
+        if model_type not in MODEL_REGISTRY:
+            # Provide helpful error with all supported types
+            supported_list = sorted(MODEL_REGISTRY.keys())
             raise ValueError(
-                f"Unsupported model architecture: {model_type}. "
-                f"Supported: {', '.join(supported_types)}"
+                f"Unsupported model architecture: '{model_type}'. "
+                f"Supported architectures ({len(supported_list)}): {', '.join(supported_list)}. "
+                f"If you believe this model should be supported, please open an issue at "
+                f"https://github.com/jnPiyush/SteeringLLM/issues with the model name and architecture."
             )
         
         return cls(model=hf_model, tokenizer=tokenizer)
@@ -187,6 +240,9 @@ class SteeringModel:
     def _detect_layers(self) -> Dict[int, torch.nn.Module]:
         """
         Detect and cache layer modules from model architecture.
+        
+        Uses MODEL_REGISTRY to find layers based on model_type. This allows
+        support for diverse architectures without hardcoding patterns.
         
         Returns:
             Dict mapping layer index to module
@@ -197,19 +253,51 @@ class SteeringModel:
         if self._layer_modules is not None:
             return self._layer_modules
         
-        # Try common patterns
-        if hasattr(self.model, "model") and hasattr(self.model.model, "layers"):
-            # Llama, Mistral, Gemma
-            layers = self.model.model.layers
-            self._layer_modules = {i: layer for i, layer in enumerate(layers)}
-        elif hasattr(self.model, "transformer") and hasattr(self.model.transformer, "h"):
-            # GPT-2 style
-            layers = self.model.transformer.h
-            self._layer_modules = {i: layer for i, layer in enumerate(layers)}
-        else:
+        # Get model type from config
+        model_type = getattr(self.model.config, "model_type", None)
+        
+        if model_type is None:
             raise ValueError(
-                "Cannot detect layers. Supported architectures: "
-                "Llama, Mistral, Gemma (model.layers.X), GPT-2 (transformer.h.X)"
+                "Cannot detect model_type from model.config. "
+                "Please ensure the model is a valid HuggingFace model."
+            )
+        
+        # Look up architecture pattern in registry
+        if model_type not in MODEL_REGISTRY:
+            supported_list = sorted(MODEL_REGISTRY.keys())
+            raise ValueError(
+                f"Unsupported model_type: '{model_type}'. "
+                f"Supported: {', '.join(supported_list)}. "
+                f"Please open an issue to request support for this architecture."
+            )
+        
+        parent_path, layers_attr = MODEL_REGISTRY[model_type]
+        
+        # Navigate to parent module
+        try:
+            parent_module = self.model
+            for attr in parent_path.split("."):
+                parent_module = getattr(parent_module, attr)
+        except AttributeError as e:
+            raise ValueError(
+                f"Cannot navigate to {parent_path} for model_type '{model_type}'. "
+                f"Model structure may have changed. Error: {e}"
+            ) from e
+        
+        # Get layers from parent module
+        if not hasattr(parent_module, layers_attr):
+            raise ValueError(
+                f"Module '{parent_path}' does not have attribute '{layers_attr}' "
+                f"for model_type '{model_type}'. Model structure may have changed."
+            )
+        
+        layers = getattr(parent_module, layers_attr)
+        self._layer_modules = {i: layer for i, layer in enumerate(layers)}
+        
+        if not self._layer_modules:
+            raise ValueError(
+                f"No layers found at {parent_path}.{layers_attr}. "
+                "Model may not be properly initialized."
             )
         
         return self._layer_modules
