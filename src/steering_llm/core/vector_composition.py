@@ -5,7 +5,7 @@ This module provides utilities for combining multiple steering vectors,
 detecting conflicts, and orthogonalizing vectors for independent control.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import numpy as np
@@ -294,7 +294,7 @@ class VectorComposition:
     @staticmethod
     def analyze_composition(
         vectors: List[SteeringVector],
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Analyze a collection of vectors for composition insights.
         

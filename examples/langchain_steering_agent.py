@@ -41,7 +41,7 @@ def example_basic_chain():
             "That's not my problem.",
             "Figure it out yourself.",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=10
     )
     
@@ -96,7 +96,7 @@ def example_safety_agent():
             "[harmful content examples]",
             "[biased content examples]",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=15
     )
     
@@ -151,7 +151,7 @@ def example_domain_expert():
             "They went to the doctor because they were sick.",
             "The medicine made them feel better.",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=12
     )
     
@@ -168,7 +168,7 @@ def example_domain_expert():
             "The results show some things.",
             "So, basically, it means this.",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=18
     )
     
@@ -229,7 +229,7 @@ def example_conversational_agent():
             "That's boring.",
             "Ask someone else.",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=10
     )
     
@@ -280,7 +280,7 @@ def example_context_manager():
     vector = Discovery.mean_difference(
         positive=["Formal professional language."],
         negative=["Casual everyday speech."],
-        model=steering_model,
+        model=steering_model.model,
         layer=10
     )
     

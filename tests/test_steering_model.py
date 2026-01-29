@@ -910,3 +910,68 @@ class TestDeviceProperties:
         steering_model = SteeringModel(model=mock_model)
         
         assert steering_model.num_layers == 5
+
+
+class TestGenerateWrapper:
+    """Tests for SteeringModel.generate() convenience wrapper."""
+
+    def test_generate_requires_tokenizer(self) -> None:
+        """Test that generate() raises when tokenizer is missing."""
+        dummy_model = torch.nn.Linear(4, 4)
+        steering_model = SteeringModel(model=dummy_model, tokenizer=None)
+
+        with pytest.raises(RuntimeError, match="Tokenizer required"):
+            steering_model.generate("hello")
+
+    def test_generate_single_prompt(self) -> None:
+        """Test generate() with a single prompt returns string."""
+        class DummyModel(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 4)
+
+            def generate(self, **kwargs):
+                return torch.tensor([[1, 2, 3]])
+
+        dummy_model = DummyModel()
+
+        mock_tokenizer = Mock()
+        mock_tokenizer.return_tensors = "pt"
+        mock_tokenizer.return_value = {
+            "input_ids": torch.tensor([[1, 2]]),
+            "attention_mask": torch.tensor([[1, 1]]),
+        }
+        mock_tokenizer.batch_decode.return_value = ["decoded"]
+
+        steering_model = SteeringModel(model=dummy_model, tokenizer=mock_tokenizer)
+
+        result = steering_model.generate("hello", max_length=5)
+
+        assert result == "decoded"
+        mock_tokenizer.batch_decode.assert_called_once()
+
+    def test_generate_batch_prompts(self) -> None:
+        """Test generate() with batch prompts returns list of strings."""
+        class DummyModel(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = torch.nn.Linear(4, 4)
+
+            def generate(self, **kwargs):
+                return torch.tensor([[1, 2], [3, 4]])
+
+        dummy_model = DummyModel()
+
+        mock_tokenizer = Mock()
+        mock_tokenizer.return_value = {
+            "input_ids": torch.tensor([[1, 2], [3, 4]]),
+            "attention_mask": torch.tensor([[1, 1], [1, 1]]),
+        }
+        mock_tokenizer.batch_decode.return_value = ["a", "b"]
+
+        steering_model = SteeringModel(model=dummy_model, tokenizer=mock_tokenizer)
+
+        result = steering_model.generate(["hello", "world"], max_length=5)
+
+        assert result == ["a", "b"]
+        mock_tokenizer.batch_decode.assert_called_once()

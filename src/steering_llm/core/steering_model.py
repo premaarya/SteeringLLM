@@ -569,6 +569,52 @@ class SteeringModel:
         finally:
             # Always remove steering, even if generation failed
             self.remove_steering(layer=vector.layer)
+
+    def generate(
+        self,
+        prompt: Union[str, List[str]],
+        **generate_kwargs: Any,
+    ) -> Union[str, List[str]]:
+        """
+        Generate text from prompt(s) using the underlying HF model.
+
+        This is a convenience wrapper that handles tokenization and decoding,
+        making SteeringModel usable with text prompts directly.
+
+        Args:
+            prompt: Input prompt(s)
+            **generate_kwargs: Arguments passed to model.generate()
+
+        Returns:
+            Generated text(s) (same type as prompt)
+        """
+        if self.tokenizer is None:
+            raise RuntimeError(
+                "Tokenizer required for generate(). "
+                "Load tokenizer via from_pretrained() or set manually."
+            )
+
+        is_single = isinstance(prompt, str)
+        prompts = [prompt] if is_single else prompt
+
+        inputs = self.tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+        )
+
+        device = next(iter(self.model.parameters())).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            output_ids = self.model.generate(**inputs, **generate_kwargs)
+
+        outputs = self.tokenizer.batch_decode(
+            output_ids,
+            skip_special_tokens=True,
+        )
+
+        return outputs[0] if is_single else outputs
     
     def __getattr__(self, name: str) -> Any:
         """

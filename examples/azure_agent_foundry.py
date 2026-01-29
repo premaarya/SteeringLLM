@@ -37,7 +37,7 @@ def example_basic_azure_agent():
             "That's not interesting.",
             "Ask someone else.",
         ],
-        model=steering_model,
+            model=steering_model.model,
         layer=10
     )
     
@@ -86,7 +86,7 @@ def example_azure_tracing():
     vector = Discovery.caa(
         positive=["Professional and helpful responses."],
         negative=["Casual or unhelpful responses."],
-        model=steering_model,
+            model=steering_model.model,
         layer=12
     )
     
@@ -144,14 +144,14 @@ def example_azure_deployment_config():
     safety_vector = Discovery.caa(
         positive=["Safe and appropriate content."],
         negative=["Harmful or inappropriate content."],
-        model=steering_model,
+            model=steering_model.model,
         layer=15
     )
     
     domain_vector = Discovery.mean_difference(
         positive=["Technical and professional language."],
         negative=["Casual conversation."],
-        model=steering_model,
+            model=steering_model.model,
         layer=10
     )
     
@@ -204,7 +204,7 @@ def example_prompt_flow():
     vector = Discovery.mean_difference(
         positive=["Professional customer service responses."],
         negative=["Unprofessional or rude responses."],
-        model=steering_model,
+            model=steering_model.model,
         layer=12
     )
     
@@ -258,7 +258,7 @@ def example_multi_agent_orchestration():
     safety_vector = Discovery.caa(
         positive=["Safe and appropriate responses."],
         negative=["Unsafe or inappropriate responses."],
-        model=steering_model,
+            model=steering_model.model,
         layer=15
     )
     safety_agent = AzureSteeringAgent(
@@ -273,7 +273,7 @@ def example_multi_agent_orchestration():
     expert_vector = Discovery.mean_difference(
         positive=["Expert technical knowledge and explanations."],
         negative=["Basic or surface-level information."],
-        model=steering_model,
+            model=steering_model.model,
         layer=12
     )
     expert_agent = AzureSteeringAgent(
@@ -327,7 +327,7 @@ def example_async_generation():
     vector = Discovery.mean_difference(
         positive=["Helpful and informative responses."],
         negative=["Unhelpful or vague responses."],
-        model=steering_model,
+        model=steering_model.model,
         layer=10
     )
     

@@ -44,7 +44,7 @@ def example_basic_rag():
             "Basic overview without details.",
             "Informal discussion.",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=12
     )
     
@@ -122,7 +122,7 @@ def example_domain_adapted_rag():
             "They felt bad and got medicine.",
             "The doctor helped them feel better.",
         ],
-        model=steering_model,
+        model=steering_model.model,
         layer=15
     )
     
@@ -191,7 +191,7 @@ def example_multi_vector_rag():
     domain_vector = Discovery.caa(
         positive=["Technical and precise explanations."],
         negative=["Vague or imprecise descriptions."],
-        model=steering_model,
+        model=steering_model.model,
         layer=10
     )
     
@@ -199,7 +199,7 @@ def example_multi_vector_rag():
     style_vector = Discovery.mean_difference(
         positive=["Formal professional writing style."],
         negative=["Casual conversational style."],
-        model=steering_model,
+        model=steering_model.model,
         layer=15
     )
     
@@ -207,7 +207,7 @@ def example_multi_vector_rag():
     safety_vector = Discovery.caa(
         positive=["Safe and appropriate content."],
         negative=["Inappropriate or harmful content."],
-        model=steering_model,
+        model=steering_model.model,
         layer=18
     )
     
@@ -280,14 +280,14 @@ def example_context_aware_rag():
     beginner_vector = Discovery.mean_difference(
         positive=["Simple explanations for beginners."],
         negative=["Complex technical jargon."],
-        model=steering_model,
+        model=steering_model.model,
         layer=10
     )
     
     expert_vector = Discovery.caa(
         positive=["Advanced technical details for experts."],
         negative=["Oversimplified explanations."],
-        model=steering_model,
+        model=steering_model.model,
         layer=12
     )
     
@@ -363,7 +363,7 @@ def example_streaming_rag():
     vector = Discovery.mean_difference(
         positive=["Detailed and informative responses."],
         negative=["Brief or incomplete answers."],
-        model=steering_model,
+        model=steering_model.model,
         layer=12
     )
     

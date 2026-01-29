@@ -5,6 +5,7 @@ This module provides methods for discovering steering vectors by analyzing
 differences in model activations between positive and negative examples.
 """
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -14,6 +15,8 @@ from sklearn.preprocessing import StandardScaler
 from transformers import PreTrainedModel, PreTrainedTokenizer, AutoTokenizer
 
 from steering_llm.core.steering_vector import SteeringVector
+
+logger = logging.getLogger(__name__)
 
 
 class Discovery:
@@ -104,7 +107,7 @@ class Discovery:
         layer_name = Discovery._detect_layer_name(model, layer)
         
         # Extract activations for positive examples
-        print(f"Extracting activations for {len(positive)} positive examples...")
+        logger.info("Extracting activations for %d positive examples...", len(positive))
         pos_activations = Discovery._extract_activations(
             texts=positive,
             model=model,
@@ -117,7 +120,7 @@ class Discovery:
         )
         
         # Extract activations for negative examples
-        print(f"Extracting activations for {len(negative)} negative examples...")
+        logger.info("Extracting activations for %d negative examples...", len(negative))
         neg_activations = Discovery._extract_activations(
             texts=negative,
             model=model,
@@ -166,19 +169,28 @@ class Discovery:
         """
         # Common patterns for different architectures
         patterns = [
-            f"model.layers.{layer}",  # Llama, Mistral, Gemma
-            f"transformer.h.{layer}",  # GPT-2
-            f"model.decoder.layers.{layer}",  # OPT
+            ("model.layers", "model", "layers"),          # Llama, Mistral, Gemma, Phi, Qwen
+            ("transformer.h", "transformer", "h"),        # GPT-2, GPT-J, BLOOM, Falcon
+            ("gpt_neox.layers", "gpt_neox", "layers"),    # GPT-NeoX
+            ("model.decoder.layers", "model.decoder", "layers"),  # OPT
         ]
-        
-        for pattern in patterns:
-            if hasattr(model, "model") and hasattr(model.model, "layers"):
-                if layer < len(model.model.layers):
-                    return f"model.layers.{layer}"
-        
+
+        for prefix, parent_path, layers_attr in patterns:
+            try:
+                parent = model
+                for attr in parent_path.split("."):
+                    parent = getattr(parent, attr)
+                if hasattr(parent, layers_attr):
+                    layers = getattr(parent, layers_attr)
+                    if layer < len(layers):
+                        return f"{prefix}.{layer}"
+            except AttributeError:
+                continue
+
         raise ValueError(
             f"Cannot detect layer name for layer {layer}. "
-            f"Supported architectures: Llama, Mistral, Gemma"
+            "Supported architectures: Llama, Mistral, Gemma, Phi, Qwen, GPT-2, "
+            "GPT-J, GPT-NeoX, BLOOM, Falcon, OPT"
         )
     
     @staticmethod
@@ -235,12 +247,14 @@ class Discovery:
             
             # Define hook function
             def hook_fn(module: torch.nn.Module, input: Any, output: Any) -> None:
-                # Extract activation (usually a tuple with tensor as first element)
+                # Extract activation from common HF output formats
                 if isinstance(output, tuple):
                     activation = output[0]
+                elif hasattr(output, "hidden_states"):
+                    activation = output.hidden_states
                 else:
                     activation = output
-                
+
                 # Take mean over sequence dimension [batch, seq_len, hidden_dim] -> [batch, hidden_dim]
                 activation_mean = activation.mean(dim=1)
                 batch_activations.append(activation_mean.detach())
@@ -391,7 +405,7 @@ class Discovery:
             negative = negative[:num_pairs]
         
         # Extract activations for all examples
-        print(f"Extracting activations for {len(positive)} contrast pairs...")
+        logger.info("Extracting activations for %d contrast pairs...", len(positive))
         pos_activations = Discovery._extract_activations(
             texts=positive,
             model=model,
@@ -517,7 +531,7 @@ class Discovery:
         layer_name = Discovery._detect_layer_name(model, layer)
         
         # Extract activations
-        print(f"Extracting activations for {len(positive)} positive examples...")
+        logger.info("Extracting activations for %d positive examples...", len(positive))
         pos_activations = Discovery._extract_activations(
             texts=positive,
             model=model,
@@ -529,7 +543,7 @@ class Discovery:
             device=device,
         )
         
-        print(f"Extracting activations for {len(negative)} negative examples...")
+        logger.info("Extracting activations for %d negative examples...", len(negative))
         neg_activations = Discovery._extract_activations(
             texts=negative,
             model=model,
@@ -552,7 +566,7 @@ class Discovery:
             X = scaler.fit_transform(X)
         
         # Train logistic regression probe
-        print("Training linear probe...")
+        logger.info("Training linear probe...")
         probe = LogisticRegression(
             C=C,
             max_iter=max_iter,
@@ -570,7 +584,7 @@ class Discovery:
         
         # Compute training accuracy
         train_accuracy = float(probe.score(X, y))
-        print(f"Linear probe accuracy: {train_accuracy:.2%}")
+        logger.info("Linear probe accuracy: %.2f%%", train_accuracy * 100)
         
         # Create metrics dict
         metrics = {

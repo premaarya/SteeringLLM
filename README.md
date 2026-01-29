@@ -22,7 +22,7 @@ model = SteeringModel.from_pretrained("meta-llama/Llama-3.2-3B")
 vector = Discovery.mean_difference(
     positive=["I love helping people!", "You're amazing!"],
     negative=["I hate this.", "You're terrible."],
-    model=model,
+    model=model.model,
     layer=15
 )
 
@@ -116,7 +116,7 @@ report.save(Path("evaluation_results/safety_report.json"))
 vector = Discovery.caa(
     positive=["I love helping!", "You're amazing!"],
     negative=["I hate this.", "You're terrible."],
-    model=model,
+    model=model.model,
     layer=15
 )
 
@@ -124,7 +124,7 @@ vector = Discovery.caa(
 vector, metrics = Discovery.linear_probe(
     positive=["I love helping!", "You're amazing!"],
     negative=["I hate this.", "You're terrible."],
-    model=model,
+    model=model.model,
     layer=15
 )
 print(f"Probe accuracy: {metrics['train_accuracy']:.2%}")
