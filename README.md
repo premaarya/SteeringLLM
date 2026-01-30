@@ -70,43 +70,89 @@ Activation steering is a technique that modifies an LLM's internal representatio
 
 ### How Steering Vectors Are Created
 
+Steering vectors capture the **direction** in activation space that represents a concept (like "helpfulness" or "safety").
+
+#### Step 1: Collect Contrast Examples
+
+| ✅ Positive Examples (Desired)        | ❌ Negative Examples (Opposite)     |
+|---------------------------------------|-------------------------------------|
+| "I'd be happy to help you!"           | "Figure it out yourself."           |
+| "Great question! Let me explain..."   | "That's a stupid question."         |
+| "Here's a step-by-step guide:"        | "I don't care about your problem."  |
+
+#### Step 2: Extract & Compare Activations
+
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                   Mean Difference Discovery                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   Positive Examples (desired behavior):                                     │
-│   ┌──────────────────────────────────┐                                      │
-│   │ "I love helping people!"         │ ──► Extract ──► [+0.3, +0.7, ...]   │
-│   │ "You're doing great!"            │    Activations                       │
-│   │ "Let me assist you with that"    │                                      │
-│   └──────────────────────────────────┘           │                          │
-│                                                  │  Average                 │
-│                                                  ▼                          │
-│                                        Positive Centroid                    │
-│                                                  │                          │
-│                                                  │                          │
-│   Negative Examples (opposite behavior):         │ SUBTRACT                 │
-│   ┌──────────────────────────────────┐           │                          │
-│   │ "I hate this."                   │ ──► Extract ──► [-0.2, -0.5, ...]   │
-│   │ "You're terrible."               │    Activations    │                  │
-│   │ "Go away."                       │                   │  Average         │
-│   └──────────────────────────────────┘                   ▼                  │
-│                                                 Negative Centroid           │
-│                                                          │                  │
-│                                                          │                  │
-│                                                          ▼                  │
-│                                        ┌─────────────────────────┐          │
-│                                        │   STEERING VECTOR       │          │
-│                                        │   [+0.5, +1.2, ...]     │          │
-│                                        │                         │          │
-│                                        │   Direction from        │          │
-│                                        │   "unhelpful" →         │          │
-│                                        │   "helpful" in          │          │
-│                                        │   activation space      │          │
-│                                        └─────────────────────────┘          │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+                    ┌─────────────────────────────────────────────────────────┐
+                    │            ACTIVATION SPACE (Layer 6)                   │
+                    │                                                         │
+                    │                        ✅ ✅                             │
+                    │                     ✅    ✅                             │
+                    │     Helpful →      ✅  ●━━━━━━━━━━━━━━━━━━➤             │
+                    │     Cluster         (positive                STEERING   │
+                    │                      centroid)               VECTOR     │
+                    │                          ↑                              │
+                    │                          │                              │
+                    │                          │  Vector = Positive - Negative│
+                    │                          │                              │
+                    │                     ❌  ●                                │
+                    │     Unhelpful →   ❌    (negative                        │
+                    │     Cluster      ❌ ❌   centroid)                        │
+                    │                                                         │
+                    └─────────────────────────────────────────────────────────┘
+```
+
+#### Step 3: The Math Behind It
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│   For each example, we extract the hidden state at a specific layer:         │
+│                                                                              │
+│   ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐     │
+│   │   "I'd love     │      │   Transformer   │      │  Hidden State   │     │
+│   │   to help!"     │ ───► │   Layers 1→6    │ ───► │  [0.8, -0.2,    │     │
+│   │                 │      │                 │      │   0.5, ...]     │     │
+│   └─────────────────┘      └─────────────────┘      └─────────────────┘     │
+│                                                                              │
+│   ─────────────────────────────────────────────────────────────────────────  │
+│                                                                              │
+│   FORMULA:                                                                   │
+│                                                                              │
+│                    1   n                      1   m                          │
+│   Steering    =   ─── Σ  positive[i]    -    ─── Σ  negative[j]             │
+│   Vector           n  i=1                     m  j=1                         │
+│                                                                              │
+│                    └──────────────┘          └──────────────┘                │
+│                     Average of all            Average of all                 │
+│                     positive examples         negative examples              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Step 4: Apply at Runtime
+
+```
+                Normal Generation                    Steered Generation
+               ─────────────────────               ─────────────────────
+                        │                                   │
+                        ▼                                   ▼
+               ┌─────────────────┐                 ┌─────────────────┐
+               │  Hidden State   │                 │  Hidden State   │
+               │   at Layer 6    │                 │   at Layer 6    │
+               │                 │                 │        +        │
+               │  h = [0.1, 0.3] │                 │  α × steering   │◄── Scale factor
+               │                 │                 │     vector      │    (α = 2.0)
+               └────────┬────────┘                 └────────┬────────┘
+                        │                                   │
+                        ▼                                   ▼
+               ┌─────────────────┐                 ┌─────────────────┐
+               │   "The answer   │                 │  "Great question│
+               │    is 42."      │                 │  ! The answer   │
+               │                 │                 │   is 42. 😊"    │
+               └─────────────────┘                 └─────────────────┘
+
+                    Neutral                            Helpful!
 ```
 
 ---
@@ -325,7 +371,7 @@ query_engine = index.as_query_engine(llm=llm)
 response = query_engine.query("What is this about?")
 ```
 
-### Safety Evaluation (Phase 3) ✨
+### Safety Evaluation ✨
 
 ```python
 from steering_llm.evaluation import SteeringEvaluator, ToxicityMetric
@@ -443,21 +489,21 @@ pip install -e ".[dev,all]"
 
 ## Features
 
-### Core Capabilities (Phase 1) ✅
+### Core Capabilities ✅
 - **Steering Vector Primitives**: Create, apply, and remove steering vectors
 - **Mean Difference Discovery**: Extract steering vectors from contrast datasets
 - **HuggingFace Integration**: Extended model support with quantization
 - **Multi-layer Support**: Apply steering to any transformer layer
 - **Persistent Steering**: Vectors stay active across multiple generations
 
-### Agent Framework Integrations (Phase 3) ✨
+### Agent Framework Integrations ✨
 - **LangChain**: BaseLLM wrapper for chains and agents
 - **Microsoft Agent Framework**: Azure AI Foundry deployment with tracing
 - **LlamaIndex**: CustomLLM for RAG applications
 - **Multi-Agent Orchestration**: Sequential, parallel, hierarchical workflows
 - **Prompt Flow Support**: Visual flow design and A/B testing
 
-### Safety & Evaluation (Phase 3) ✨
+### Safety & Evaluation ✨
 - **ToxiGen Benchmark**: 13 minority groups, implicit toxicity detection
 - **RealToxicityPrompts**: 100K naturally occurring prompts
 - **Toxicity Metrics**: Local models (unitary/toxic-bert) or Perspective API
@@ -465,13 +511,13 @@ pip install -e ".[dev,all]"
 - **Domain Accuracy**: Keyword-based domain evaluation (medical, legal, technical)
 - **Evaluation Suite**: Unified interface with JSON reports and visualization
 
-### Advanced Discovery (Phase 2) ✅
+### Advanced Discovery ✅
 - **CAA (Contrastive Activation Addition)**: Layer-wise contrasts for stronger steering
 - **Linear Probing**: Train classifiers on activations, extract probe weights
 - **Method Comparison**: Benchmark different discovery approaches
 - **Accuracy Metrics**: Track probe performance (target >80%)
 
-### Multi-Vector Composition (Phase 2) ✅
+### Multi-Vector Composition ✅
 - **Weighted Composition**: Combine multiple vectors with custom weights
 - **Conflict Detection**: Identify correlated/anti-correlated vectors
 - **Orthogonalization**: Gram-Schmidt for independent steering directions
@@ -540,15 +586,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## Examples
 
-- **Basic Usage**: [examples/steering_basic_usage.py](examples/steering_basic_usage.py)
-- **LangChain Integration**: [examples/langchain_steering_agent.py](examples/langchain_steering_agent.py)
-- **Azure Agent Framework**: [examples/azure_agent_foundry.py](examples/azure_agent_foundry.py)
-- **LlamaIndex RAG**: [examples/llamaindex_rag_steering.py](examples/llamaindex_rag_steering.py)
+| Example | Code | Guide |
+|---------|------|-------|
+| **Basic Usage** | [steering_basic_usage.py](examples/steering_basic_usage.py) | [📖 Guide](docs/examples/basic-usage-guide.md) |
+| **LangChain Integration** | [langchain_steering_agent.py](examples/langchain_steering_agent.py) | [📖 Guide](docs/examples/langchain-integration-guide.md) |
+| **Azure Agent Framework** | [azure_agent_foundry.py](examples/azure_agent_foundry.py) | [📖 Guide](docs/examples/azure-agent-guide.md) |
+| **LlamaIndex RAG** | [llamaindex_rag_steering.py](examples/llamaindex_rag_steering.py) | [📖 Guide](docs/examples/llamaindex-rag-guide.md) |
 
 ## Documentation
 
 - **Architecture**: [docs/adr/ADR-001-steeringllm-architecture.md](docs/adr/ADR-001-steeringllm-architecture.md)
 - **API Reference**: [docs/API-REFERENCE.md](docs/API-REFERENCE.md)
+- **Example Guides**: [docs/examples/](docs/examples/)
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md)
 
 ## License
