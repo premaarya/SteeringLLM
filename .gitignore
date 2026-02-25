@@ -49,3 +49,6 @@ Thumbs.db
 vectors/
 models/
 outputs/
+.agentx/
+.github/
+.scripts/
